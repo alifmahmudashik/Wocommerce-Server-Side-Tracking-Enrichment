@@ -5,11 +5,32 @@ final class WCMD_Admin_UI {
     private static $inst = null;
     public static function instance() { return self::$inst ?: self::$inst = new self(); }
 
+    /** Pending admin-notice HTML from handle_actions(), rendered by render_own_notice(). */
+    private $notice_html = '';
+
     private function __construct() {
         add_action( 'admin_menu',           [$this, 'register_menus'] );
         add_action( 'admin_init',           [$this, 'register_settings'] );
         add_action( 'admin_enqueue_scripts',[$this, 'enqueue_assets'] );
         add_action( 'admin_init',           [$this, 'handle_actions'] );
+
+        // Other plugins' promo/nag notices (e.g. Elementor) render inside our
+        // page header and break its layout. On our own screens, strip every
+        // notice and only show ours back.
+        add_action( 'in_admin_header', [$this, 'suppress_foreign_notices'], PHP_INT_MAX );
+    }
+
+    public function suppress_foreign_notices() {
+        $screen = get_current_screen();
+        if ( ! $screen || strpos( $screen->id, 'wcmd' ) === false ) return;
+
+        remove_all_actions( 'admin_notices' );
+        remove_all_actions( 'all_admin_notices' );
+        add_action( 'admin_notices', [$this, 'render_own_notice'] );
+    }
+
+    public function render_own_notice() {
+        if ( $this->notice_html ) echo $this->notice_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from esc_html() pieces at the call site
     }
 
     public function enqueue_assets($hook) {
@@ -340,28 +361,28 @@ final class WCMD_Admin_UI {
             $order_id = absint( $_POST['test_order_id'] );
             if ( class_exists('WCMD_Realtime_Trigger') ) {
                 $res = WCMD_Realtime_Trigger::instance()->send( $order_id, true );
-                add_action('admin_notices', function() use ($res) {
-                    if ( is_wp_error($res) ) echo '<div class="notice notice-error"><p>Couldn\'t send: '.esc_html($res->get_error_message()).'</p></div>';
-                    else echo '<div class="notice notice-success"><p>Sent! Reached: '.esc_html(implode(', ', array_keys(array_filter($res)))).'</p></div>';
-                });
+                if ( is_wp_error($res) ) {
+                    $this->notice_html = '<div class="notice notice-error"><p>Couldn\'t send: '.esc_html($res->get_error_message()).'</p></div>';
+                } else {
+                    $this->notice_html = '<div class="notice notice-success"><p>Sent! Reached: '.esc_html(implode(', ', array_keys(array_filter($res)))).'</p></div>';
+                }
             }
         }
 
         if ( $_POST['wcmd_do'] === 'send_test_payload' && check_admin_referer('wc_md_test_payload_nonce') ) {
             if ( class_exists('WCMD_Dispatcher') ) {
                 $res = WCMD_Dispatcher::instance()->send_test('both');
-                add_action('admin_notices', function() use ($res) {
-                    if ( is_wp_error($res) ) echo '<div class="notice notice-error"><p>Couldn\'t send: '.esc_html($res->get_error_message()).'</p></div>';
-                    else echo '<div class="notice notice-success"><p>Sample purchase sent — check your destination for it.</p></div>';
-                });
+                if ( is_wp_error($res) ) {
+                    $this->notice_html = '<div class="notice notice-error"><p>Couldn\'t send: '.esc_html($res->get_error_message()).'</p></div>';
+                } else {
+                    $this->notice_html = '<div class="notice notice-success"><p>Sample purchase sent — check your destination for it.</p></div>';
+                }
             }
         }
 
         if ( $_POST['wcmd_do'] === 'run_recovery_now' && check_admin_referer('wc_md_run_recovery_nonce') ) {
             $count = WCMD_Recovery_Scheduler::instance()->manual_run_now();
-            add_action('admin_notices', function() use ($count) {
-                echo '<div class="notice notice-success"><p>Done — sent '.intval($count).' orders (up to 50 per click). Click again if you still see untracked orders.</p></div>';
-            });
+            $this->notice_html = '<div class="notice notice-success"><p>Done — sent '.intval($count).' orders (up to 50 per click). Click again if you still see untracked orders.</p></div>';
         }
     }
 }
