@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Wocommerce Server-Side Tracking & Enrichment
  * Description: Captures marketing data and fires purchase events to a Data Client webhook and/or GA4 Measurement Protocol — in real time on order status change, and via a background recovery sweep for anything missed.
- * Version: 3.3.0
+ * Version: 3.4.0
  * Author: Alif Mahmud
  * Author URI: https://alifmahmud.com
  * License: GPL-2.0+
  */
 
 if ( ! defined('ABSPATH') ) exit;
-if ( ! defined('WCMD_VERSION') ) define('WCMD_VERSION', '3.3.0');
+if ( ! defined('WCMD_VERSION') ) define('WCMD_VERSION', '3.4.0');
 if ( ! defined('WCMD_URL') ) define('WCMD_URL', plugin_dir_url(__FILE__));
 
 /* HPOS compatibility */

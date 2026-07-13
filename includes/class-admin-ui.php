@@ -147,7 +147,7 @@ final class WCMD_Admin_UI {
                                 <th>📊 Status</th>
                                 <th>💰 Total</th>
                                 <th>✅ Tracked</th>
-                                <th>🔗 Data Client</th>
+                                <th>🔗 sGTM</th>
                                 <th>📈 GA4</th>
                                 <th>👤 Facebook</th>
                                 <th>📅 Date</th>
@@ -284,23 +284,9 @@ final class WCMD_Admin_UI {
                             <h2 class="wcmd-section-title">Destinations</h2>
                             <p class="wcmd-section-desc">Turn on the places you want purchase data sent to. That's the only switch each one needs — the Triggers tab decides <em>when</em> to send, and automatically uses whatever you turn on here.</p>
 
-                            <div class="wcmd-input-group" style="border:1px solid #dbeafe; background:#eff6ff; padding:15px; border-radius:8px;">
-                                <label style="color:#1e40af; font-size:15px;">
-                                    <input type="checkbox" name="<?php echo $opt_key; ?>[dataclient_enabled]" value="1" <?php checked($opts['dataclient_enabled'],1); ?> />
-                                    <strong>Data Client Webhook</strong>
-                                </label>
-                                <p class="description" style="margin-top:5px;">Sends the full order details to any web address you choose. Use this for a custom server-side GTM Data Client, a CRM, or any system other than GA4.</p>
-                                <div class="wcmd-input-group" style="margin-top:10px;">
-                                    <label>Web address to send to</label>
-                                    <input type="url" name="<?php echo $opt_key; ?>[dataclient_endpoint]" value="<?php echo esc_attr($opts['dataclient_endpoint']); ?>" placeholder="https://your-sgtm.example.com/data-client" style="width:100%;" />
-                                </div>
-                            </div>
-
-                            <hr style="border:0; border-top:1px solid #e2e8f0; margin:20px 0;">
-
                             <div class="wcmd-input-group">
                                 <label>How do you send to GA4 / Facebook?</label>
-                                <p class="description" style="margin-top:0;">These two are mutually exclusive — pick one. Switching keeps the other mode's saved settings, just hidden, so you can switch back anytime without re-entering anything.</p>
+                                <p class="description" style="margin-top:0;">These are mutually exclusive — pick one. Switching keeps the other mode's saved settings, just hidden, so you can switch back anytime without re-entering anything.</p>
                                 <div style="display:flex; gap:12px; margin-top:8px; flex-wrap:wrap;">
                                     <label style="font-weight:normal; display:flex; align-items:center; gap:8px; border:1px solid #e2e8f0; padding:10px 16px; border-radius:8px; cursor:pointer; background:#f8fafc;">
                                         <input type="radio" name="<?php echo $opt_key; ?>[integration_mode]" value="sgtm" id="wcmd-mode-sgtm-radio" <?php checked($opts['integration_mode'],'sgtm'); ?> onchange="wcmdToggleMode()" />
@@ -313,21 +299,27 @@ final class WCMD_Admin_UI {
                                 </div>
                             </div>
 
-                            <div class="wcmd-input-group" style="border:1px solid #dcfce7; background:#f0fdf4; padding:15px; border-radius:8px; margin-top:15px;">
-                                <label style="color:#15803d; font-size:15px;">
-                                    <input type="checkbox" name="<?php echo $opt_key; ?>[ga4_enabled]" value="1" <?php checked($opts['ga4_enabled'],1); ?> />
-                                    <strong>GA4 (Google Analytics 4)</strong>
-                                </label>
-                                <p class="description" style="margin-top:5px;">Sends a purchase event to Google Analytics 4, built from the visitor info this plugin already saved (the customer's ad-click IDs, cookies, IP, etc.) — no extra lookup step.</p>
-
-                                <div class="wcmd-only-sgtm" style="<?php echo $opts['integration_mode']==='direct' ? 'display:none;' : ''; ?>">
+                            <div class="wcmd-only-sgtm" style="<?php echo $opts['integration_mode']==='direct' ? 'display:none;' : ''; ?>">
+                                <div class="wcmd-input-group" style="border:1px solid #dbeafe; background:#eff6ff; padding:15px; border-radius:8px; margin-top:15px;">
+                                    <label style="color:#1e40af; font-size:15px;">
+                                        <input type="checkbox" name="<?php echo $opt_key; ?>[dataclient_enabled]" value="1" <?php checked($opts['dataclient_enabled'],1); ?> />
+                                        <strong>sGTM Server Endpoint</strong>
+                                    </label>
+                                    <p class="description" style="margin-top:5px;">Your one and only destination in this mode — sends the full order to your server-side GTM container, including client_id and session_id so it can identify the visitor for GA4 (and anything else, like Facebook, your container forwards to).</p>
                                     <div class="wcmd-input-group" style="margin-top:10px;">
                                         <label>Web address to send to</label>
-                                        <input type="url" name="<?php echo $opt_key; ?>[ga4_endpoint]" value="<?php echo esc_attr($opts['ga4_endpoint']); ?>" placeholder="https://your-sgtm.example.com/ga4-client" style="width:100%;" />
-                                        <span class="description">Your server-side GTM container's GA4 endpoint.</span>
+                                        <input type="url" name="<?php echo $opt_key; ?>[dataclient_endpoint]" value="<?php echo esc_attr($opts['dataclient_endpoint']); ?>" placeholder="https://your-sgtm.example.com/data-client" style="width:100%;" />
                                     </div>
                                 </div>
-                                <div class="wcmd-only-direct" style="<?php echo $opts['integration_mode']==='sgtm' ? 'display:none;' : ''; ?>">
+                            </div>
+
+                            <div class="wcmd-only-direct" style="<?php echo $opts['integration_mode']==='sgtm' ? 'display:none;' : ''; ?>">
+                                <div class="wcmd-input-group" style="border:1px solid #dcfce7; background:#f0fdf4; padding:15px; border-radius:8px; margin-top:15px;">
+                                    <label style="color:#15803d; font-size:15px;">
+                                        <input type="checkbox" name="<?php echo $opt_key; ?>[ga4_enabled]" value="1" <?php checked($opts['ga4_enabled'],1); ?> />
+                                        <strong>GA4 Measurement Protocol</strong>
+                                    </label>
+                                    <p class="description" style="margin-top:5px;">Sends a purchase event straight to Google Analytics 4 — no sGTM container needed.</p>
                                     <div class="wcmd-input-group" style="margin-top:10px;">
                                         <label>Measurement ID</label>
                                         <input type="text" name="<?php echo $opt_key; ?>[ga4_measurement_id]" value="<?php echo esc_attr($opts['ga4_measurement_id']); ?>" placeholder="G-XXXXXXXXXX" style="width:100%;" />
@@ -338,9 +330,7 @@ final class WCMD_Admin_UI {
                                         <span class="description">Admin → Data Streams → your stream → Measurement Protocol API secrets.</span>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div class="wcmd-only-direct" style="<?php echo $opts['integration_mode']==='sgtm' ? 'display:none;' : ''; ?>">
                                 <div class="wcmd-input-group" style="border:1px solid #dbeafe; background:#eff6ff; padding:15px; border-radius:8px; margin-top:15px;">
                                     <label style="color:#1e40af; font-size:15px;">
                                         <input type="checkbox" name="<?php echo $opt_key; ?>[fb_enabled]" value="1" <?php checked($opts['fb_enabled'],1); ?> />
@@ -355,6 +345,11 @@ final class WCMD_Admin_UI {
                                         <label>Conversions API Access Token</label>
                                         <input type="password" name="<?php echo $opt_key; ?>[fb_access_token]" value="<?php echo esc_attr($opts['fb_access_token']); ?>" style="width:100%;" />
                                         <span class="description">Events Manager → your Pixel → Settings → Conversions API.</span>
+                                    </div>
+                                    <div class="wcmd-input-group">
+                                        <label>Test Event Code <span style="font-weight:normal; color:#64748b;">(optional)</span></label>
+                                        <input type="text" name="<?php echo $opt_key; ?>[fb_test_event_code]" value="<?php echo esc_attr($opts['fb_test_event_code']); ?>" placeholder="TEST12345" style="width:100%;" />
+                                        <span class="description">Events Manager → Test Events, to get a code. While this is filled in, <strong>every</strong> event (real orders included) shows up under Test Events instead of counting as a real conversion — clear it once you've confirmed things work.</span>
                                     </div>
                                 </div>
                             </div>
@@ -373,9 +368,14 @@ final class WCMD_Admin_UI {
                             <h2 class="wcmd-section-title">Triggers</h2>
                             <p class="wcmd-section-desc">This decides <em>when</em> purchase data goes out to the destinations you turned on. The two methods below work independently — use just one, or both together. If an order was already sent by one, the other will skip it, so you'll never get double-counted.</p>
 
-                            <?php if ( empty($opts['dataclient_enabled']) && empty($opts['ga4_enabled']) ): ?>
+                            <?php
+                            $any_destination_on = $opts['integration_mode'] === 'direct'
+                                ? ( ! empty($opts['ga4_enabled']) || ! empty($opts['fb_enabled']) )
+                                : ! empty($opts['dataclient_enabled']);
+                            ?>
+                            <?php if ( ! $any_destination_on ): ?>
                                 <div style="background:#fff7ed; color:#9a3412; padding:12px; border-radius:8px; margin-bottom:20px; border:1px solid #ffedd5; font-size:13px;">
-                                    You haven't turned on a destination yet. Visit the <strong>Destinations</strong> tab and enable Data Client and/or GA4 first, or nothing below will actually send.
+                                    You haven't turned on a destination yet. Visit the <strong>Destinations</strong> tab and enable <?php echo $opts['integration_mode'] === 'direct' ? 'GA4 and/or Facebook' : 'the sGTM Server Endpoint'; ?> first, or nothing below will actually send.
                                 </div>
                             <?php endif; ?>
 

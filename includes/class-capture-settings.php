@@ -143,7 +143,7 @@ final class WCMD_Capture_Settings {
         } else {
             echo '<span>—</span> <small>(no tracking state yet)</small>';
         }
-        if ( $dc_sent )  echo '<br/><small>Data Client sent: ' . esc_html( $dc_sent ) . ' UTC</small>';
+        if ( $dc_sent )  echo '<br/><small>sGTM sent: ' . esc_html( $dc_sent ) . ' UTC</small>';
         if ( $ga4_sent ) echo '<br/><small>GA4 sent: ' . esc_html( $ga4_sent ) . ' UTC</small>';
         echo '<hr/>';
 

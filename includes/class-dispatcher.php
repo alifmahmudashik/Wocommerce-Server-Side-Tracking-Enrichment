@@ -2,8 +2,11 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 /**
- * Single place that builds the purchase payload and sends it to the two
- * supported destinations (Data Client webhook, GA4 Measurement Protocol).
+ * Single place that builds the purchase payload and sends it to whichever
+ * destinations are enabled: the sGTM Server Endpoint (sGTM mode's one and
+ * only destination — carries GA4-identifying params like client_id/
+ * session_id directly in its payload), or GA4 Measurement Protocol +
+ * Facebook Conversions API (Direct mode, sent straight to Google/Meta).
  * Both the Real-Time Trigger and the Recovery Sweep call into this class so
  * there is exactly one send implementation and one dedupe rule per
  * destination.
@@ -73,7 +76,10 @@ final class WCMD_Dispatcher {
     }
 
     /* ==========================================================================
-       DATA CLIENT
+       sGTM SERVER ENDPOINT (labelled "Data Client Webhook" internally for
+       backwards compatibility with existing option/meta keys — this is
+       sGTM mode's single destination; its payload carries GA4-identifying
+       params like client_id/session_id directly, no separate GA4 endpoint)
        ========================================================================== */
     public function send_data_client( \WC_Order $order, $opts, $force = false ) {
         if ( empty($opts['dataclient_enabled']) || empty($opts['dataclient_endpoint']) ) return false;
@@ -99,14 +105,15 @@ final class WCMD_Dispatcher {
     }
 
     /* ==========================================================================
-       GA4 MEASUREMENT PROTOCOL
+       GA4 MEASUREMENT PROTOCOL (Direct mode only — sGTM mode sends everything,
+       GA4 included, through the single sGTM Server Endpoint below instead)
        ========================================================================== */
     public function send_ga4( \WC_Order $order, $opts, $force = false ) {
+        if ( ( $opts['integration_mode'] ?? 'sgtm' ) !== 'direct' ) return false;
         if ( empty($opts['ga4_enabled']) ) return false;
         if ( ! $force && $this->already_sent( $order, 'ga4' ) ) return false;
 
-        $mode = $opts['integration_mode'] ?? 'sgtm';
-        $url  = $this->ga4_url( $opts, $mode );
+        $url = $this->ga4_url( $opts );
         if ( ! $url ) return false;
 
         $payload = $this->build_payload( $order );
@@ -122,7 +129,7 @@ final class WCMD_Dispatcher {
         $code = (int) wp_remote_retrieve_response_code($resp);
         if ( $code >= 200 && $code < 400 ) {
             $order->update_meta_data( WCMD_Utils::META_GA4_SENT, current_time('c', true) );
-            if ( $mode === 'direct' ) $this->mark_tracked_direct( $order, 'direct-ga4' );
+            $this->mark_tracked_direct( $order, 'direct-ga4' );
             $order->save();
             return true;
         }
@@ -131,19 +138,13 @@ final class WCMD_Dispatcher {
         return false;
     }
 
-    /** sGTM mode posts to the configured container endpoint; Direct mode posts straight to Google's real Measurement Protocol collect endpoint. */
-    private function ga4_url( $opts, $mode ) {
-        if ( $mode === 'direct' ) {
-            if ( empty($opts['ga4_measurement_id']) || empty($opts['ga4_api_secret']) ) return '';
-            return add_query_arg(
-                [ 'measurement_id' => $opts['ga4_measurement_id'], 'api_secret' => $opts['ga4_api_secret'] ],
-                'https://www.google-analytics.com/mp/collect'
-            );
-        }
-        if ( empty($opts['ga4_endpoint']) ) return '';
-        $url = $opts['ga4_endpoint'];
-        if ( strpos($url, 'v=2') === false ) $url = add_query_arg( 'v', '2', $url );
-        return $url;
+    /** Google's real Measurement Protocol collect endpoint, authenticated with the Measurement ID + API Secret entered on the Destinations tab. */
+    private function ga4_url( $opts ) {
+        if ( empty($opts['ga4_measurement_id']) || empty($opts['ga4_api_secret']) ) return '';
+        return add_query_arg(
+            [ 'measurement_id' => $opts['ga4_measurement_id'], 'api_secret' => $opts['ga4_api_secret'] ],
+            'https://www.google-analytics.com/mp/collect'
+        );
     }
 
     /* ==========================================================================
@@ -162,10 +163,13 @@ final class WCMD_Dispatcher {
             'https://graph.facebook.com/v19.0/' . rawurlencode($opts['fb_pixel_id']) . '/events'
         );
 
+        $body = [ 'data' => [$event] ];
+        if ( ! empty($opts['fb_test_event_code']) ) $body['test_event_code'] = $opts['fb_test_event_code'];
+
         $resp = wp_remote_post( $url, [
             'timeout' => 15,
             'headers' => [ 'Content-Type' => 'application/json' ],
-            'body'    => wp_json_encode( apply_filters('wcmd_facebook_payload', ['data' => [$event]], $order) ),
+            'body'    => wp_json_encode( apply_filters('wcmd_facebook_payload', $body, $order) ),
         ] );
 
         $code = (int) wp_remote_retrieve_response_code($resp);
@@ -252,19 +256,17 @@ final class WCMD_Dispatcher {
         }
         if ( ! $client_id ) $client_id = 'server.' . ( $payload['transaction_id'] ?: wp_generate_uuid4() );
 
-        $session_id = '';
-        foreach ( $cookies as $key => $val ) {
-            if ( strpos($key, '_ga_') === 0 ) {
-                $sid = WCMD_Utils::parse_ga_session_id( $val );
-                if ( $sid ) { $session_id = $sid; break; }
-            }
-        }
+        $session_id = $this->extract_ga_session_id( $cookies );
 
         $params = $payload;
         unset( $params['client_id'] );
         if ( $session_id ) $params['session_id'] = $session_id;
         $params['ip_override'] = $payload['ip_override'] ?? '';
         $params['user_agent']  = $payload['user_agent'] ?? '';
+        // Always on: lets you watch real events land in GA4 DebugView. This does
+        // NOT exclude the event from standard GA4 reporting (unlike Facebook's
+        // test_event_code, which does) — safe to leave on for real traffic.
+        $params['debug_mode'] = 'true';
 
         $body = [
             'client_id' => $client_id,
@@ -274,8 +276,18 @@ final class WCMD_Dispatcher {
         return $body;
     }
 
+    private function extract_ga_session_id( array $cookies ) {
+        foreach ( $cookies as $key => $val ) {
+            if ( strpos($key, '_ga_') === 0 ) {
+                $sid = WCMD_Utils::parse_ga_session_id( $val );
+                if ( $sid ) return $sid;
+            }
+        }
+        return '';
+    }
+
     /* ==========================================================================
-       PAYLOAD BUILDER (shared by both destinations)
+       PAYLOAD BUILDER (shared by every destination)
        ========================================================================== */
     public function build_payload( \WC_Order $order ) {
         $items = [];
@@ -312,6 +324,7 @@ final class WCMD_Dispatcher {
         } elseif ( ! empty($params['_ga']) ) {
             $client_id = WCMD_Utils::parse_ga_cookie_to_cid( $params['_ga'] );
         }
+        $session_id = $this->extract_ga_session_id( $cookies );
 
         $value          = (float) wc_format_decimal( $order->get_total(), 2 );
         $tax            = (float) wc_format_decimal( $order->get_total_tax(), 2 );
@@ -362,6 +375,7 @@ final class WCMD_Dispatcher {
             'coupon'          => $coupon,
             'items'           => $items,
             'client_id'       => $client_id,
+            'session_id'      => $session_id,
             'common_cookie'   => $cookies,
             'url_parameters'  => $params,
             'ip_override'     => $ip ?: (string) $order->get_customer_ip_address(),
@@ -429,12 +443,10 @@ final class WCMD_Dispatcher {
             if ( is_wp_error($resp) ) $error = $resp; else $sent_any = true;
         }
 
-        if ( ( $destination === 'ga4' || $destination === 'both' ) && ! empty($opts['ga4_enabled']) ) {
-            $mode = $opts['integration_mode'] ?? 'sgtm';
-            $url  = $this->ga4_url( $opts, $mode );
+        if ( ( $destination === 'ga4' || $destination === 'both' ) && ( $opts['integration_mode'] ?? 'sgtm' ) === 'direct' && ! empty($opts['ga4_enabled']) ) {
+            $url = $this->ga4_url( $opts );
             if ( $url ) {
-                $mp_body = $this->build_ga4_body( $payload );
-                $mp_body['events'][0]['params']['debug_mode'] = 'true';
+                $mp_body = $this->build_ga4_body( $payload ); // already carries debug_mode:true
                 $url = add_query_arg( 'cid', $mp_body['client_id'], $url );
                 $resp = wp_remote_post( $url, [
                     'timeout' => 15, 'headers' => ['Content-Type' => 'application/json'],
@@ -450,9 +462,13 @@ final class WCMD_Dispatcher {
                 'access_token', $opts['fb_access_token'],
                 'https://graph.facebook.com/v19.0/' . rawurlencode($opts['fb_pixel_id']) . '/events'
             );
+            // Always tag manual test sends with a test code — falls back to
+            // 'TEST' if none is configured, so this fake data never counts as
+            // a real conversion in Facebook's reporting.
+            $test_code = ! empty($opts['fb_test_event_code']) ? $opts['fb_test_event_code'] : 'TEST';
             $resp = wp_remote_post( $url, [
                 'timeout' => 15, 'headers' => ['Content-Type' => 'application/json'],
-                'body' => wp_json_encode( ['data' => [$event], 'test_event_code' => 'TEST'] ),
+                'body' => wp_json_encode( ['data' => [$event], 'test_event_code' => $test_code] ),
             ]);
             if ( is_wp_error($resp) && ! $sent_any ) $error = $resp; else $sent_any = true;
         }

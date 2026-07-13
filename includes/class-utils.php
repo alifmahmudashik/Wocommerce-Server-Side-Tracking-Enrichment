@@ -55,27 +55,31 @@ final class WCMD_Utils {
             'store_user_agent' => 1,
             'store_ip'         => 1,
 
-            // Destinations — enabling one here is the single on/off switch;
-            // both Real-Time and Recovery automatically use whatever is enabled.
+            // Integration mode picks how GA4 / Facebook get their data —
+            // mutually exclusive. 'sgtm': a single sGTM Server Endpoint
+            // (dataclient_enabled/endpoint below) handles everything, GA4
+            // included, carrying client_id/session_id directly in its
+            // payload. 'direct': GA4 and Facebook are each sent straight to
+            // Google's/Meta's real APIs with their own credentials, no sGTM
+            // container involved.
+            'integration_mode' => 'sgtm', // 'sgtm' | 'direct'
+
+            // sGTM mode's one and only destination.
             'dataclient_enabled'  => 0,
             'dataclient_endpoint' => '',
             'skip_if_tracked'     => 1,
 
-            // GA4 has two mutually-exclusive ways to send: through a
-            // self-hosted sGTM container, or directly to Google's real
-            // Measurement Protocol endpoint. 'ga4_enabled' is the single
-            // on/off switch either way; integration_mode picks which
-            // credentials/endpoint it actually uses.
-            'integration_mode' => 'sgtm', // 'sgtm' | 'direct'
-            'ga4_enabled'      => 0,
-            'ga4_endpoint'     => '',       // sGTM mode
-            'ga4_measurement_id' => '',     // Direct mode
-            'ga4_api_secret'     => '',     // Direct mode
+            // GA4 Measurement Protocol — Direct mode only.
+            'ga4_enabled'         => 0,
+            'ga4_endpoint'        => '', // unused; kept so old sGTM-GA4 values aren't lost on upgrade
+            'ga4_measurement_id'  => '',
+            'ga4_api_secret'      => '',
 
-            // Facebook Conversions API — only available in Direct mode.
-            'fb_enabled'      => 0,
-            'fb_pixel_id'     => '',
-            'fb_access_token' => '',
+            // Facebook Conversions API — Direct mode only.
+            'fb_enabled'         => 0,
+            'fb_pixel_id'        => '',
+            'fb_access_token'    => '',
+            'fb_test_event_code' => '', // optional — shows up in Facebook's Test Events tool instead of counting as a real conversion
 
             // Triggers — Real-Time and Recovery each watch their own status
             // list, independently. Real-Time fires immediately when an order
@@ -119,14 +123,17 @@ final class WCMD_Utils {
         $mode = isset($input['integration_mode']) ? $input['integration_mode'] : 'sgtm';
         $out['integration_mode'] = in_array($mode, ['sgtm','direct'], true) ? $mode : 'sgtm';
 
-        $out['ga4_enabled']         = empty($input['ga4_enabled']) ? 0 : 1;
-        $out['ga4_endpoint']        = isset($input['ga4_endpoint']) ? esc_url_raw(trim($input['ga4_endpoint'])) : '';
-        $out['ga4_measurement_id']  = isset($input['ga4_measurement_id']) ? sanitize_text_field(trim($input['ga4_measurement_id'])) : '';
-        $out['ga4_api_secret']      = isset($input['ga4_api_secret']) ? sanitize_text_field(trim($input['ga4_api_secret'])) : '';
+        $out['ga4_enabled']        = empty($input['ga4_enabled']) ? 0 : 1;
+        // ga4_endpoint no longer has a form field (sGTM mode uses the single
+        // sGTM Server Endpoint instead) — preserve whatever was last saved
+        // rather than blanking it out just because the form doesn't submit it.
+        $out['ga4_measurement_id'] = isset($input['ga4_measurement_id']) ? sanitize_text_field(trim($input['ga4_measurement_id'])) : '';
+        $out['ga4_api_secret']     = isset($input['ga4_api_secret']) ? sanitize_text_field(trim($input['ga4_api_secret'])) : '';
 
-        $out['fb_enabled']      = empty($input['fb_enabled']) ? 0 : 1;
-        $out['fb_pixel_id']     = isset($input['fb_pixel_id']) ? sanitize_text_field(trim($input['fb_pixel_id'])) : '';
-        $out['fb_access_token'] = isset($input['fb_access_token']) ? sanitize_text_field(trim($input['fb_access_token'])) : '';
+        $out['fb_enabled']         = empty($input['fb_enabled']) ? 0 : 1;
+        $out['fb_pixel_id']        = isset($input['fb_pixel_id']) ? sanitize_text_field(trim($input['fb_pixel_id'])) : '';
+        $out['fb_access_token']    = isset($input['fb_access_token']) ? sanitize_text_field(trim($input['fb_access_token'])) : '';
+        $out['fb_test_event_code'] = isset($input['fb_test_event_code']) ? sanitize_text_field(trim($input['fb_test_event_code'])) : '';
 
         // Triggers (independent status list per firing mechanism). An absent
         // checkbox group means the user unchecked every box — save that as a
