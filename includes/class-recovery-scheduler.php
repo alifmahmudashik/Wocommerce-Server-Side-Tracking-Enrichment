@@ -75,10 +75,10 @@ final class WCMD_Recovery_Scheduler {
         if ( $window_days < 1 ) $window_days = 1;
         $after_date = date( 'Y-m-d\TH:i:s', time() - ( $window_days * DAY_IN_SECONDS ) );
 
-        // Recovery only ever considers orders currently in a Trigger Status —
-        // this is the same shared list Real-Time uses, so a "completed
-        // purchase" means the same thing everywhere in the plugin.
-        $allowed_statuses = $o['trigger_statuses'] ?? ['processing'];
+        // Recovery only ever considers orders currently in one of its own
+        // statuses — independent from Real-Time's list, so each mechanism
+        // can watch a different point in the order lifecycle.
+        $allowed_statuses = $o['recovery_statuses'] ?? ['processing'];
 
         $args = [
             'limit'        => 50,

@@ -21,7 +21,7 @@ final class WCMD_Realtime_Trigger {
         $opts = WCMD_Utils::get_options();
         if ( empty($opts['realtime_enabled']) ) return;
 
-        $allowed = $opts['trigger_statuses'] ?? ['processing'];
+        $allowed = $opts['realtime_statuses'] ?? ['processing'];
         if ( ! in_array( $new_status, $allowed, true ) ) return;
 
         $this->schedule( $order_id, $opts );

@@ -7,7 +7,7 @@ final class WCMD_Utils {
     const INSTALL_TIME_KEY = 'wcmd_install_timestamp';
     const CAPABILITY       = 'manage_woocommerce';
 
-    const CURRENT_SCHEMA_VERSION = 3;
+    const CURRENT_SCHEMA_VERSION = 4;
 
     // Capture / tracking-confirmation meta (unchanged)
     const META_KEY         = '_marketing_data';
@@ -62,14 +62,15 @@ final class WCMD_Utils {
             'ga4_endpoint'        => '',
             'skip_if_tracked'     => 1,
 
-            // Triggers — shared status list; Real-Time fires immediately on
-            // status change, Recovery Sweep periodically catches anything an
-            // order in one of these statuses never got sent.
-            'trigger_statuses' => ['processing'],
+            // Triggers — Real-Time and Recovery each watch their own status
+            // list, independently. Real-Time fires immediately when an order
+            // reaches one of its statuses; Recovery Sweep periodically
+            // catches orders sitting in one of its statuses that never sent.
+            'realtime_statuses' => ['processing'],
+            'realtime_enabled'  => 0,
+            'realtime_delay'    => 5,
 
-            'realtime_enabled' => 0,
-            'realtime_delay'   => 5,
-
+            'recovery_statuses'    => ['processing'],
             'recovery_enabled'     => 0,
             'recovery_schedule'    => 'off',
             'recovery_window_days' => 7,
@@ -102,17 +103,21 @@ final class WCMD_Utils {
         $out['ga4_endpoint']        = isset($input['ga4_endpoint']) ? esc_url_raw(trim($input['ga4_endpoint'])) : '';
         $out['skip_if_tracked']     = empty($input['skip_if_tracked']) ? 0 : 1;
 
-        // Triggers (shared status list + the two firing mechanisms)
-        if ( isset($input['trigger_statuses']) && is_array($input['trigger_statuses']) ) {
-            $out['trigger_statuses'] = array_map('sanitize_key', $input['trigger_statuses']);
+        // Triggers (independent status list per firing mechanism)
+        if ( isset($input['realtime_statuses']) && is_array($input['realtime_statuses']) ) {
+            $out['realtime_statuses'] = array_map('sanitize_key', $input['realtime_statuses']);
         } else {
-            $out['trigger_statuses'] = ['processing'];
+            $out['realtime_statuses'] = ['processing'];
         }
-
         $out['realtime_enabled'] = empty($input['realtime_enabled']) ? 0 : 1;
         $delay = isset($input['realtime_delay']) ? intval($input['realtime_delay']) : 5;
         $out['realtime_delay'] = max(0, min(60, $delay));
 
+        if ( isset($input['recovery_statuses']) && is_array($input['recovery_statuses']) ) {
+            $out['recovery_statuses'] = array_map('sanitize_key', $input['recovery_statuses']);
+        } else {
+            $out['recovery_statuses'] = ['processing'];
+        }
         $out['recovery_enabled'] = empty($input['recovery_enabled']) ? 0 : 1;
         $valid = ['off','every_1_min','every_15_min','every_30_min','hourly','twicedaily','daily'];
         $req   = isset($input['recovery_schedule']) ? $input['recovery_schedule'] : 'off';
@@ -137,6 +142,7 @@ final class WCMD_Utils {
 
         if ( $current < 2 ) self::migrate_v1_to_v2();
         if ( $current < 3 ) self::migrate_v2_to_v3();
+        if ( $current < 4 ) self::migrate_v3_to_v4();
 
         update_option( self::SCHEMA_VER_KEY, self::CURRENT_SCHEMA_VERSION );
     }
@@ -197,6 +203,24 @@ final class WCMD_Utils {
         update_option( self::OPTION_KEY, $new );
     }
 
+    /** Split the shared trigger_statuses list back into independent realtime_statuses / recovery_statuses lists, so each firing mechanism can watch different order statuses. */
+    private static function migrate_v3_to_v4() {
+        $old = get_option( self::OPTION_KEY, [] );
+        if ( empty($old) ) return;
+
+        $new = self::default_options();
+
+        foreach ( ['enabled','cookie_keys','urlparam_keys','store_user_agent','store_ip','dataclient_enabled','dataclient_endpoint','ga4_enabled','ga4_endpoint','skip_if_tracked','realtime_enabled','realtime_delay','recovery_enabled','recovery_schedule','recovery_window_days','webhook_enabled','webhook_secret'] as $k ) {
+            if ( isset($old[$k]) ) $new[$k] = $old[$k];
+        }
+
+        $shared = ! empty($old['trigger_statuses']) && is_array($old['trigger_statuses']) ? $old['trigger_statuses'] : ['processing'];
+        $new['realtime_statuses'] = $shared;
+        $new['recovery_statuses'] = $shared;
+
+        update_option( self::OPTION_KEY, $new );
+    }
+
     public static function lines_to_keys( $str ) {
         $keys = array_filter( array_map( 'trim', preg_split( '/\r\n|\r|\n/', (string) $str ) ) );
         $keys = array_unique( $keys );
@@ -226,9 +250,14 @@ final class WCMD_Utils {
         return '';
     }
 
+    /**
+     * The _ga_<container-id> cookie GA4 sets client-side looks like:
+     * GS1.1.<session_start_timestamp>.<hit_count>.<is_engaged>.<last_engagement_timestamp>.0.0.0
+     * The GA4 Measurement Protocol session_id parameter is that third,
+     * dot-separated segment (a Unix timestamp), not a regex-embedded "s123".
+     */
     public static function parse_ga_session_id( $gaSessionCookie ) {
-        $gaSessionCookie = (string) $gaSessionCookie;
-        if ( preg_match('/s(\d+)/', $gaSessionCookie, $m) ) return $m[1];
-        return '';
+        $parts = explode( '.', (string) $gaSessionCookie );
+        return ( isset($parts[2]) && ctype_digit($parts[2]) ) ? $parts[2] : '';
     }
 }

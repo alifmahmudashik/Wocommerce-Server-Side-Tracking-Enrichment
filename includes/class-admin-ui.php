@@ -84,6 +84,24 @@ final class WCMD_Admin_UI {
                 $untracked_count++;
             }
         }
+
+        $opts = WCMD_Utils::get_options();
+
+        $realtime_next_text = 'Off';
+        if ( ! empty($opts['realtime_enabled']) ) {
+            $realtime_next_text = 'On — fires within ' . intval($opts['realtime_delay']) . 's of a matching order status';
+        }
+
+        $recovery_next_text = 'Off';
+        if ( ! empty($opts['recovery_enabled']) && $opts['recovery_schedule'] !== 'off' ) {
+            $next_ts = wp_next_scheduled( WCMD_Utils::CRON_HOOK );
+            if ( $next_ts ) {
+                $diff = $next_ts - time();
+                $recovery_next_text = $diff <= 0 ? 'Due now — running shortly' : 'In ' . human_time_diff( time(), $next_ts );
+            } else {
+                $recovery_next_text = 'Scheduling — will register on next page load';
+            }
+        }
         ?>
         <div class="wrap wcmd-wrap">
             <div class="wcmd-header">
@@ -145,6 +163,20 @@ final class WCMD_Admin_UI {
                             <?php endforeach; endif; ?>
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <div class="wcmd-card" style="margin-bottom:24px;">
+                <div class="wcmd-section-title">Next Scheduled Run</div>
+                <div style="display:flex; gap:48px; margin-top:12px; flex-wrap:wrap;">
+                    <div>
+                        <div class="wcmd-stat-label">⚡ Real-Time</div>
+                        <div style="font-size:16px; font-weight:600; color:#0f172a; margin-top:6px;"><?php echo esc_html($realtime_next_text); ?></div>
+                    </div>
+                    <div>
+                        <div class="wcmd-stat-label">🔄 Recovery Sweep</div>
+                        <div style="font-size:16px; font-weight:600; color:#0f172a; margin-top:6px;"><?php echo esc_html($recovery_next_text); ?></div>
+                    </div>
                 </div>
             </div>
 
@@ -278,7 +310,7 @@ final class WCMD_Admin_UI {
                         <!-- ============ TRIGGERS (combined Real-Time + Recovery) ============ -->
                         <div id="tab-triggers" class="wcmd-tab-content wcmd-card">
                             <h2 class="wcmd-section-title">Triggers</h2>
-                            <p class="wcmd-section-desc">This decides <em>when</em> purchase data goes out to the destinations you turned on. You can use just one method below, or both together so nothing slips through — Recovery Sweep only ever picks up what Real-Time missed, so the same order is never sent twice.</p>
+                            <p class="wcmd-section-desc">This decides <em>when</em> purchase data goes out to the destinations you turned on. The two methods below work independently, each watching its own order status(es) — use just one, or both together. If an order was already sent by one, the other will skip it, so you'll never get double-counted.</p>
 
                             <?php if ( empty($opts['dataclient_enabled']) && empty($opts['ga4_enabled']) ): ?>
                                 <div style="background:#fff7ed; color:#9a3412; padding:12px; border-radius:8px; margin-bottom:20px; border:1px solid #ffedd5; font-size:13px;">
@@ -286,25 +318,24 @@ final class WCMD_Admin_UI {
                                 </div>
                             <?php endif; ?>
 
-                            <div class="wcmd-input-group">
-                                <label>Which order status counts as "sold"?</label>
-                                <p class="description" style="margin-top:0;">Tick the status (or statuses) that mean a real, paid order — not a cart that was abandoned or a refund. Both methods below use this same list.</p>
-                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; max-width:500px; background:#f8fafc; padding:10px; border:1px solid #e2e8f0; border-radius:6px;">
-                                    <?php
-                                    $saved_statuses = $opts['trigger_statuses'] ?? ['processing'];
-                                    foreach($statuses as $slug => $label):
-                                        $clean_slug = str_replace('wc-', '', $slug);
-                                    ?>
-                                        <label style="font-weight:normal; font-size:13px; margin:0;"><input type="checkbox" name="<?php echo $opt_key; ?>[trigger_statuses][]" value="<?php echo esc_attr($clean_slug); ?>" <?php checked(in_array($clean_slug, $saved_statuses)); ?> /> <?php echo esc_html($label); ?></label>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-
-                            <hr style="border:0; border-top:1px solid #e2e8f0; margin:20px 0;">
+                            <?php
+                            $realtime_saved = $opts['realtime_statuses'] ?? ['processing'];
+                            $recovery_saved = $opts['recovery_statuses'] ?? ['processing'];
+                            ?>
 
                             <div class="wcmd-input-group" style="border:1px solid #e2e8f0; padding:15px; border-radius:8px;">
                                 <label style="font-size:15px;"><input type="checkbox" name="<?php echo $opt_key; ?>[realtime_enabled]" value="1" <?php checked($opts['realtime_enabled'],1); ?> /> <strong>⚡ Send right away</strong></label>
-                                <p class="description" style="margin:6px 0 0;">The moment an order reaches one of the statuses above, send it — no waiting.</p>
+                                <p class="description" style="margin:6px 0 0;">The moment an order reaches one of the statuses below, send it — no waiting.</p>
+
+                                <div class="wcmd-input-group" style="margin-top:12px;">
+                                    <label>Which status(es) trigger this</label>
+                                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; max-width:460px; background:#f8fafc; padding:10px; border:1px solid #e2e8f0; border-radius:6px;">
+                                        <?php foreach($statuses as $slug => $label): $clean_slug = str_replace('wc-', '', $slug); ?>
+                                            <label style="font-weight:normal; font-size:13px; margin:0;"><input type="checkbox" name="<?php echo $opt_key; ?>[realtime_statuses][]" value="<?php echo esc_attr($clean_slug); ?>" <?php checked(in_array($clean_slug, $realtime_saved)); ?> /> <?php echo esc_html($label); ?></label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+
                                 <div class="wcmd-input-group" style="margin-top:10px;">
                                     <label>Wait a few seconds first (optional)</label>
                                     <input type="number" min="0" max="60" name="<?php echo $opt_key; ?>[realtime_delay]" value="<?php echo esc_attr($opts['realtime_delay']); ?>" style="width:100px;" />
@@ -314,7 +345,16 @@ final class WCMD_Admin_UI {
 
                             <div class="wcmd-input-group" style="border:1px solid #e2e8f0; padding:15px; border-radius:8px; margin-top:15px;">
                                 <label style="font-size:15px;"><input type="checkbox" name="<?php echo $opt_key; ?>[recovery_enabled]" value="1" <?php checked($opts['recovery_enabled'],1); ?> /> <strong>🔄 Check back and catch anything missed</strong></label>
-                                <p class="description" style="margin:6px 0 0;">Every so often, look back over recent orders for any still in one of the statuses above that never got sent — and send those now. This is your safety net if "Send right away" is off, misses an order, or the site was briefly down.</p>
+                                <p class="description" style="margin:6px 0 0;">Every so often, look back over recent orders for any still in one of the statuses below that never got sent — and send those now. Works completely on its own, whether or not "Send right away" is turned on.</p>
+
+                                <div class="wcmd-input-group" style="margin-top:12px;">
+                                    <label>Which status(es) to look for</label>
+                                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; max-width:460px; background:#f8fafc; padding:10px; border:1px solid #e2e8f0; border-radius:6px;">
+                                        <?php foreach($statuses as $slug => $label): $clean_slug = str_replace('wc-', '', $slug); ?>
+                                            <label style="font-weight:normal; font-size:13px; margin:0;"><input type="checkbox" name="<?php echo $opt_key; ?>[recovery_statuses][]" value="<?php echo esc_attr($clean_slug); ?>" <?php checked(in_array($clean_slug, $recovery_saved)); ?> /> <?php echo esc_html($label); ?></label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
 
                                 <?php echo $cron_msg; ?>
                                 <div class="wcmd-input-group" style="margin-top:10px;">

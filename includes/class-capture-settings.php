@@ -58,6 +58,16 @@ final class WCMD_Capture_Settings {
                 $data['common_cookies'][$key] = sanitize_text_field( wp_unslash($_COOKIE[$key]) );
             }
         }
+
+        // GA4's session cookie is named per-property (e.g. _ga_ABC1234XYZ), so
+        // it can never be listed by exact name above — capture it automatically
+        // whenever present, since it's required to send a session_id to GA4.
+        foreach ( $_COOKIE as $cookie_name => $cookie_value ) {
+            if ( isset($data['common_cookies'][$cookie_name]) ) continue;
+            if ( $cookie_value === '' || ! preg_match('/^_ga_[A-Za-z0-9]+$/', $cookie_name) ) continue;
+            $data['common_cookies'][$cookie_name] = sanitize_text_field( wp_unslash($cookie_value) );
+        }
+
         foreach ( $param_keys as $key ) {
             if ( isset($_REQUEST[$key]) && $_REQUEST[$key] !== '' ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
                 $data['url_parameters'][$key] = sanitize_text_field( wp_unslash($_REQUEST[$key]) );
