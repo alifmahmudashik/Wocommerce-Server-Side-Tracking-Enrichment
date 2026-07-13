@@ -40,6 +40,10 @@ final class WCMD_Admin_UI {
                 $js = "document.addEventListener('DOMContentLoaded', function(){const tabs=document.querySelectorAll('.wcmd-nav-item');const contents=document.querySelectorAll('.wcmd-tab-content');if(tabs.length){tabs.forEach(tab=>{tab.addEventListener('click',function(e){e.preventDefault();tabs.forEach(t=>t.classList.remove('active'));contents.forEach(c=>c.classList.remove('active'));this.classList.add('active');const target=this.getAttribute('data-tab');document.getElementById(target).classList.add('active');const url=new URL(window.location);url.searchParams.set('tab',target);window.history.pushState({},'',url);});});const urlParams=new URLSearchParams(window.location.search);const activeTab=urlParams.get('tab');if(activeTab){const targetTab=document.querySelector(`.wcmd-nav-item[data-tab='`+activeTab+`']`);if(targetTab)targetTab.click();}}});";
                 wp_add_inline_script('common', $js);
             }
+
+            // Live "In X seconds/minutes" countdown for the Overview page's Recovery Sweep timer.
+            $countdown_js = "document.addEventListener('DOMContentLoaded', function(){const el=document.getElementById('wcmd-recovery-next');if(!el)return;const targetTs=parseInt(el.getAttribute('data-next-ts'),10);if(!targetTs)return;const targetMs=targetTs*1000;function fmt(diffSec){if(diffSec<=0)return'Due now — running shortly';if(diffSec<60)return'In '+diffSec+' second'+(diffSec===1?'':'s');const mins=Math.floor(diffSec/60);if(mins<60)return'In '+mins+' minute'+(mins===1?'':'s');const hours=Math.floor(mins/60);if(hours<24)return'In '+hours+' hour'+(hours===1?'':'s');const days=Math.floor(hours/24);return'In '+days+' day'+(days===1?'':'s');}function tick(){const diff=Math.round((targetMs-Date.now())/1000);el.textContent=fmt(diff);if(diff<=-10)clearInterval(timer);}tick();const timer=setInterval(tick,1000);});";
+            wp_add_inline_script( 'common', $countdown_js );
         }
     }
 
@@ -93,11 +97,13 @@ final class WCMD_Admin_UI {
         }
 
         $recovery_next_text = 'Off';
+        $recovery_next_ts   = 0; // exposed to JS for a live countdown; 0 = don't tick
         if ( ! empty($opts['recovery_enabled']) && $opts['recovery_schedule'] !== 'off' ) {
             $next_ts = wp_next_scheduled( WCMD_Utils::CRON_HOOK );
             if ( $next_ts ) {
                 $diff = $next_ts - time();
                 $recovery_next_text = $diff <= 0 ? 'Due now — running shortly' : 'In ' . human_time_diff( time(), $next_ts );
+                if ( $diff > 0 ) $recovery_next_ts = $next_ts;
             } else {
                 $recovery_next_text = 'Scheduling — will register on next page load';
             }
@@ -175,7 +181,7 @@ final class WCMD_Admin_UI {
                     </div>
                     <div>
                         <div class="wcmd-stat-label">🔄 Recovery Sweep</div>
-                        <div style="font-size:16px; font-weight:600; color:#0f172a; margin-top:6px;"><?php echo esc_html($recovery_next_text); ?></div>
+                        <div id="wcmd-recovery-next" data-next-ts="<?php echo esc_attr($recovery_next_ts); ?>" style="font-size:16px; font-weight:600; color:#0f172a; margin-top:6px;"><?php echo esc_html($recovery_next_text); ?></div>
                     </div>
                 </div>
             </div>
