@@ -149,13 +149,15 @@ final class WCMD_Admin_UI {
                                 <th>✅ Tracked</th>
                                 <th>🔗 Data Client</th>
                                 <th>📈 GA4</th>
+                                <th>👤 Facebook</th>
                                 <th>📅 Date</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if(empty($recent_orders)): ?><tr><td colspan="7">No orders found.</td></tr><?php else: foreach($recent_orders as $order):
+                            <?php if(empty($recent_orders)): ?><tr><td colspan="8">No orders found.</td></tr><?php else: foreach($recent_orders as $order):
                                 $dc_sent  = $order->get_meta(WCMD_Utils::META_DC_SENT)  ?: $order->get_meta(WCMD_Utils::LEGACY_META_WH_SENT);
                                 $ga4_sent = $order->get_meta(WCMD_Utils::META_GA4_SENT) ?: $order->get_meta(WCMD_Utils::LEGACY_META_STAPE_SENT);
+                                $fb_sent  = $order->get_meta(WCMD_Utils::META_FB_SENT);
                             ?>
                                 <tr>
                                     <td><a href="<?php echo $order->get_edit_order_url(); ?>">#<?php echo $order->get_order_number(); ?></a></td>
@@ -164,6 +166,7 @@ final class WCMD_Admin_UI {
                                     <td><?php echo ($order->get_meta(WCMD_Utils::META_TRACKED)==='1') ? '<span class="wcmd-status-pill status-yes">Yes</span>' : '<span class="wcmd-status-pill status-no">No</span>'; ?></td>
                                     <td><?php echo $dc_sent ? '<span class="dashicons dashicons-yes text-blue"></span>' : '—'; ?></td>
                                     <td><?php echo $ga4_sent ? '<span class="dashicons dashicons-yes text-green"></span>' : '—'; ?></td>
+                                    <td><?php echo $fb_sent ? '<span class="dashicons dashicons-yes text-purple"></span>' : '—'; ?></td>
                                     <td><?php echo $order->get_date_created()->date_i18n('M j, H:i'); ?></td>
                                 </tr>
                             <?php endforeach; endif; ?>
@@ -293,24 +296,76 @@ final class WCMD_Admin_UI {
                                 </div>
                             </div>
 
+                            <hr style="border:0; border-top:1px solid #e2e8f0; margin:20px 0;">
+
+                            <div class="wcmd-input-group">
+                                <label>How do you send to GA4 / Facebook?</label>
+                                <p class="description" style="margin-top:0;">These two are mutually exclusive — pick one. Switching keeps the other mode's saved settings, just hidden, so you can switch back anytime without re-entering anything.</p>
+                                <div style="display:flex; gap:12px; margin-top:8px; flex-wrap:wrap;">
+                                    <label style="font-weight:normal; display:flex; align-items:center; gap:8px; border:1px solid #e2e8f0; padding:10px 16px; border-radius:8px; cursor:pointer; background:#f8fafc;">
+                                        <input type="radio" name="<?php echo $opt_key; ?>[integration_mode]" value="sgtm" id="wcmd-mode-sgtm-radio" <?php checked($opts['integration_mode'],'sgtm'); ?> onchange="wcmdToggleMode()" />
+                                        Server-Side GTM
+                                    </label>
+                                    <label style="font-weight:normal; display:flex; align-items:center; gap:8px; border:1px solid #e2e8f0; padding:10px 16px; border-radius:8px; cursor:pointer; background:#f8fafc;">
+                                        <input type="radio" name="<?php echo $opt_key; ?>[integration_mode]" value="direct" id="wcmd-mode-direct-radio" <?php checked($opts['integration_mode'],'direct'); ?> onchange="wcmdToggleMode()" />
+                                        Direct API Integration
+                                    </label>
+                                </div>
+                            </div>
+
                             <div class="wcmd-input-group" style="border:1px solid #dcfce7; background:#f0fdf4; padding:15px; border-radius:8px; margin-top:15px;">
                                 <label style="color:#15803d; font-size:15px;">
                                     <input type="checkbox" name="<?php echo $opt_key; ?>[ga4_enabled]" value="1" <?php checked($opts['ga4_enabled'],1); ?> />
                                     <strong>GA4 (Google Analytics 4)</strong>
                                 </label>
                                 <p class="description" style="margin-top:5px;">Sends a purchase event to Google Analytics 4, built from the visitor info this plugin already saved (the customer's ad-click IDs, cookies, IP, etc.) — no extra lookup step.</p>
-                                <div class="wcmd-input-group" style="margin-top:10px;">
-                                    <label>Web address to send to</label>
-                                    <input type="url" name="<?php echo $opt_key; ?>[ga4_endpoint]" value="<?php echo esc_attr($opts['ga4_endpoint']); ?>" placeholder="https://your-sgtm.example.com/ga4-client" style="width:100%;" />
-                                    <span class="description">Your server-side GTM container's GA4 endpoint.</span>
+
+                                <div class="wcmd-only-sgtm" style="<?php echo $opts['integration_mode']==='direct' ? 'display:none;' : ''; ?>">
+                                    <div class="wcmd-input-group" style="margin-top:10px;">
+                                        <label>Web address to send to</label>
+                                        <input type="url" name="<?php echo $opt_key; ?>[ga4_endpoint]" value="<?php echo esc_attr($opts['ga4_endpoint']); ?>" placeholder="https://your-sgtm.example.com/ga4-client" style="width:100%;" />
+                                        <span class="description">Your server-side GTM container's GA4 endpoint.</span>
+                                    </div>
+                                </div>
+                                <div class="wcmd-only-direct" style="<?php echo $opts['integration_mode']==='sgtm' ? 'display:none;' : ''; ?>">
+                                    <div class="wcmd-input-group" style="margin-top:10px;">
+                                        <label>Measurement ID</label>
+                                        <input type="text" name="<?php echo $opt_key; ?>[ga4_measurement_id]" value="<?php echo esc_attr($opts['ga4_measurement_id']); ?>" placeholder="G-XXXXXXXXXX" style="width:100%;" />
+                                    </div>
+                                    <div class="wcmd-input-group">
+                                        <label>API Secret</label>
+                                        <input type="password" name="<?php echo $opt_key; ?>[ga4_api_secret]" value="<?php echo esc_attr($opts['ga4_api_secret']); ?>" style="width:100%;" />
+                                        <span class="description">Admin → Data Streams → your stream → Measurement Protocol API secrets.</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="wcmd-only-direct" style="<?php echo $opts['integration_mode']==='sgtm' ? 'display:none;' : ''; ?>">
+                                <div class="wcmd-input-group" style="border:1px solid #dbeafe; background:#eff6ff; padding:15px; border-radius:8px; margin-top:15px;">
+                                    <label style="color:#1e40af; font-size:15px;">
+                                        <input type="checkbox" name="<?php echo $opt_key; ?>[fb_enabled]" value="1" <?php checked($opts['fb_enabled'],1); ?> />
+                                        <strong>Facebook Conversions API</strong>
+                                    </label>
+                                    <p class="description" style="margin-top:5px;">Sends a Purchase event straight to Meta, matched using the customer's saved Facebook click/browser IDs. Email and phone are hashed before sending — never sent in plain text.</p>
+                                    <div class="wcmd-input-group" style="margin-top:10px;">
+                                        <label>Pixel ID</label>
+                                        <input type="text" name="<?php echo $opt_key; ?>[fb_pixel_id]" value="<?php echo esc_attr($opts['fb_pixel_id']); ?>" placeholder="123456789012345" style="width:100%;" />
+                                    </div>
+                                    <div class="wcmd-input-group">
+                                        <label>Conversions API Access Token</label>
+                                        <input type="password" name="<?php echo $opt_key; ?>[fb_access_token]" value="<?php echo esc_attr($opts['fb_access_token']); ?>" style="width:100%;" />
+                                        <span class="description">Events Manager → your Pixel → Settings → Conversions API.</span>
+                                    </div>
                                 </div>
                             </div>
 
                             <hr style="border:0; border-top:1px solid #e2e8f0; margin:20px 0;">
                             <div class="wcmd-input-group">
                                 <label><input type="checkbox" name="<?php echo $opt_key; ?>[skip_if_tracked]" value="1" <?php checked($opts['skip_if_tracked'],1); ?> /> <strong>Don't send it again if it's already confirmed</strong></label>
-                                <p class="description">Applies to both destinations above. If the Incoming API (see that tab) already told this plugin an order's purchase was received elsewhere, skip it here — so you never count the same sale twice.</p>
+                                <p class="description">Applies to all destinations above. If the order is already confirmed Tracked — either the Incoming API told this plugin so, or a Direct-mode send already succeeded — skip it here, so you never count the same sale twice.</p>
                             </div>
+
+                            <script>function wcmdToggleMode(){var direct=document.getElementById('wcmd-mode-direct-radio').checked;document.querySelectorAll('.wcmd-only-sgtm').forEach(function(el){el.style.display=direct?'none':'';});document.querySelectorAll('.wcmd-only-direct').forEach(function(el){el.style.display=direct?'':'none';});}</script>
                         </div>
 
                         <!-- ============ TRIGGERS (combined Real-Time + Recovery) ============ -->
@@ -387,7 +442,7 @@ final class WCMD_Admin_UI {
                         <!-- ============ INCOMING API ============ -->
                         <div id="tab-incoming" class="wcmd-tab-content wcmd-card">
                             <h2 class="wcmd-section-title">Incoming API</h2>
-                            <p class="wcmd-section-desc">This is a web address other systems can call to tell this plugin "this order's purchase was received." For example, your server-side GTM container can confirm it got the event, and that flips the order to Tracked — which then powers the "don't send it again if it's already confirmed" option on the Destinations tab. You only need this if you're connecting an outside system; most stores can leave it off.</p>
+                            <p class="wcmd-section-desc">This is a web address other systems can call to tell this plugin "this order's purchase was received." For example, your server-side GTM container can confirm it got the event, and that flips the order to Tracked — which then powers the "don't send it again if it's already confirmed" option on the Destinations tab. (If you're using Direct API Integration instead, you don't need this — Facebook/GA4 sends confirm themselves automatically.) You only need this if you're connecting an outside system; most stores can leave it off.</p>
                             <div class="wcmd-input-group"><label><input type="checkbox" name="<?php echo $opt_key; ?>[webhook_enabled]" value="1" <?php checked($opts['webhook_enabled'],1); ?> /> Allow outside systems to mark orders as tracked</label></div>
                             <div class="wcmd-input-group"><label>Shared secret</label><input type="text" name="<?php echo $opt_key; ?>[webhook_secret]" value="<?php echo esc_attr($opts['webhook_secret']); ?>" /><span class="description">A password only you and the calling system know, so random requests on the internet can't mark your orders as tracked.</span></div>
                             <p style="background:#f1f5f9;padding:10px;border-radius:6px;font-size:12px">Web address to call: <code><?php echo esc_url(rest_url('wc-marketing/v1/track')); ?></code></p>

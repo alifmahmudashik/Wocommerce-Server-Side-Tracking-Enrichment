@@ -40,6 +40,9 @@ final class WCMD_Dispatcher {
         if ( in_array('ga4', $destinations, true) ) {
             $result['ga4'] = $this->send_ga4( $order, $opts, $force );
         }
+        if ( in_array('facebook', $destinations, true) ) {
+            $result['facebook'] = $this->send_facebook( $order, $opts, $force );
+        }
         return $result;
     }
 
@@ -50,7 +53,23 @@ final class WCMD_Dispatcher {
         if ( $destination === 'ga4' ) {
             return (bool) ( $order->get_meta( WCMD_Utils::META_GA4_SENT ) ?: $order->get_meta( WCMD_Utils::LEGACY_META_STAPE_SENT ) );
         }
+        if ( $destination === 'facebook' ) {
+            return (bool) $order->get_meta( WCMD_Utils::META_FB_SENT );
+        }
         return false;
+    }
+
+    /**
+     * Direct mode gets a real HTTP response straight from Google/Meta, so a
+     * successful send can self-confirm the order as Tracked immediately —
+     * unlike sGTM mode, where sGTM is a black box and Tracked only ever
+     * comes from the external Incoming API confirming it.
+     */
+    private function mark_tracked_direct( \WC_Order $order, $source ) {
+        if ( $order->get_meta( WCMD_Utils::META_TRACKED ) === '1' ) return;
+        $order->update_meta_data( WCMD_Utils::META_TRACKED, '1' );
+        $order->update_meta_data( WCMD_Utils::META_TRACKED_AT, current_time('c', true) );
+        $order->update_meta_data( WCMD_Utils::META_TRACK_SRC, $source );
     }
 
     /* ==========================================================================
@@ -83,15 +102,16 @@ final class WCMD_Dispatcher {
        GA4 MEASUREMENT PROTOCOL
        ========================================================================== */
     public function send_ga4( \WC_Order $order, $opts, $force = false ) {
-        if ( empty($opts['ga4_enabled']) || empty($opts['ga4_endpoint']) ) return false;
+        if ( empty($opts['ga4_enabled']) ) return false;
         if ( ! $force && $this->already_sent( $order, 'ga4' ) ) return false;
+
+        $mode = $opts['integration_mode'] ?? 'sgtm';
+        $url  = $this->ga4_url( $opts, $mode );
+        if ( ! $url ) return false;
 
         $payload = $this->build_payload( $order );
         $mp_body = $this->build_ga4_body( $payload );
-
-        $url = $opts['ga4_endpoint'];
-        if ( strpos($url, 'v=2') === false ) $url = add_query_arg( 'v', '2', $url );
-        $url = add_query_arg( 'cid', $mp_body['client_id'], $url );
+        $url     = add_query_arg( 'cid', $mp_body['client_id'], $url );
 
         $resp = wp_remote_post( $url, [
             'timeout' => 15,
@@ -102,12 +122,119 @@ final class WCMD_Dispatcher {
         $code = (int) wp_remote_retrieve_response_code($resp);
         if ( $code >= 200 && $code < 400 ) {
             $order->update_meta_data( WCMD_Utils::META_GA4_SENT, current_time('c', true) );
+            if ( $mode === 'direct' ) $this->mark_tracked_direct( $order, 'direct-ga4' );
             $order->save();
             return true;
         }
 
         $this->log( "Order #{$order->get_id()}: GA4 send failed (" . ( is_wp_error($resp) ? $resp->get_error_message() : "HTTP $code" ) . ')' );
         return false;
+    }
+
+    /** sGTM mode posts to the configured container endpoint; Direct mode posts straight to Google's real Measurement Protocol collect endpoint. */
+    private function ga4_url( $opts, $mode ) {
+        if ( $mode === 'direct' ) {
+            if ( empty($opts['ga4_measurement_id']) || empty($opts['ga4_api_secret']) ) return '';
+            return add_query_arg(
+                [ 'measurement_id' => $opts['ga4_measurement_id'], 'api_secret' => $opts['ga4_api_secret'] ],
+                'https://www.google-analytics.com/mp/collect'
+            );
+        }
+        if ( empty($opts['ga4_endpoint']) ) return '';
+        $url = $opts['ga4_endpoint'];
+        if ( strpos($url, 'v=2') === false ) $url = add_query_arg( 'v', '2', $url );
+        return $url;
+    }
+
+    /* ==========================================================================
+       FACEBOOK CONVERSIONS API (Direct mode only)
+       https://developers.facebook.com/docs/marketing-api/conversions-api
+       ========================================================================== */
+    public function send_facebook( \WC_Order $order, $opts, $force = false ) {
+        if ( empty($opts['fb_enabled']) || empty($opts['fb_pixel_id']) || empty($opts['fb_access_token']) ) return false;
+        if ( ! $force && $this->already_sent( $order, 'facebook' ) ) return false;
+
+        $payload = $this->build_payload( $order );
+        $event   = $this->build_facebook_event( $payload );
+
+        $url = add_query_arg(
+            'access_token', $opts['fb_access_token'],
+            'https://graph.facebook.com/v19.0/' . rawurlencode($opts['fb_pixel_id']) . '/events'
+        );
+
+        $resp = wp_remote_post( $url, [
+            'timeout' => 15,
+            'headers' => [ 'Content-Type' => 'application/json' ],
+            'body'    => wp_json_encode( apply_filters('wcmd_facebook_payload', ['data' => [$event]], $order) ),
+        ] );
+
+        $code = (int) wp_remote_retrieve_response_code($resp);
+        if ( $code >= 200 && $code < 400 ) {
+            $order->update_meta_data( WCMD_Utils::META_FB_SENT, current_time('c', true) );
+            $this->mark_tracked_direct( $order, 'direct-facebook' );
+            $order->save();
+            return true;
+        }
+
+        $body = is_wp_error($resp) ? $resp->get_error_message() : wp_remote_retrieve_body($resp);
+        $this->log( "Order #{$order->get_id()}: Facebook send failed (HTTP $code) $body" );
+        return false;
+    }
+
+    /**
+     * Builds one Meta Conversions API event from the shared local payload.
+     * PII (email/phone) is SHA-256 hashed per Meta's spec — never sent raw.
+     * fbc/fbp/IP/user-agent are identifiers, not PII, and are sent as-is.
+     */
+    public function build_facebook_event( array $payload ) {
+        $cookies = $payload['common_cookie'] ?? [];
+        $params  = $payload['url_parameters'] ?? [];
+
+        $user_data = [
+            'client_ip_address' => $payload['ip_override'] ?? '',
+            'client_user_agent' => $payload['user_agent'] ?? '',
+        ];
+        if ( ! empty($payload['email_address']) ) $user_data['em'] = [ $this->fb_hash($payload['email_address']) ];
+        if ( ! empty($payload['phone_number']) )  $user_data['ph'] = [ $this->fb_hash($this->fb_normalize_phone($payload['phone_number'])) ];
+
+        $fbc = $cookies['_fbc'] ?? '';
+        $fbp = $cookies['_fbp'] ?? '';
+        $fbclid = $cookies['fbclid'] ?? $params['fbclid'] ?? '';
+        if ( ! $fbc && $fbclid ) $fbc = 'fb.1.' . time() . '.' . $fbclid; // best-effort per Meta's documented fallback format
+        if ( $fbc ) $user_data['fbc'] = $fbc;
+        if ( $fbp ) $user_data['fbp'] = $fbp;
+
+        $content_ids = [];
+        $contents    = [];
+        foreach ( $payload['items'] ?? [] as $item ) {
+            $content_ids[] = $item['item_id'];
+            $contents[] = [ 'id' => $item['item_id'], 'quantity' => $item['quantity'], 'item_price' => $item['price'] ];
+        }
+
+        return [
+            'event_name'       => 'Purchase',
+            'event_time'       => (int) ( $payload['timestamp'] ?? time() ),
+            'event_id'         => (string) ( $payload['transaction_id'] ?? '' ),
+            'action_source'    => 'website',
+            'event_source_url' => $payload['page_referrer'] ?? ( $payload['site_url'] ?? '' ),
+            'user_data'        => $user_data,
+            'custom_data'      => [
+                'currency'     => $payload['currency'] ?? '',
+                'value'        => $payload['value'] ?? 0,
+                'content_ids'  => $content_ids,
+                'contents'     => $contents,
+                'num_items'    => count($contents),
+            ],
+        ];
+    }
+
+    private function fb_hash( $value ) {
+        return hash( 'sha256', strtolower( trim( (string) $value ) ) );
+    }
+
+    /** Meta expects phone digits only (no +, spaces, dashes) before hashing. */
+    private function fb_normalize_phone( $phone ) {
+        return preg_replace( '/[^0-9]/', '', (string) $phone );
     }
 
     /**
@@ -302,15 +429,30 @@ final class WCMD_Dispatcher {
             if ( is_wp_error($resp) ) $error = $resp; else $sent_any = true;
         }
 
-        if ( ( $destination === 'ga4' || $destination === 'both' ) && ! empty($opts['ga4_enabled']) && ! empty($opts['ga4_endpoint']) ) {
-            $mp_body = $this->build_ga4_body( $payload );
-            $mp_body['events'][0]['params']['debug_mode'] = 'true';
-            $url = $opts['ga4_endpoint'];
-            if ( strpos($url, 'v=2') === false ) $url = add_query_arg( 'v', '2', $url );
-            $url = add_query_arg( 'cid', $mp_body['client_id'], $url );
+        if ( ( $destination === 'ga4' || $destination === 'both' ) && ! empty($opts['ga4_enabled']) ) {
+            $mode = $opts['integration_mode'] ?? 'sgtm';
+            $url  = $this->ga4_url( $opts, $mode );
+            if ( $url ) {
+                $mp_body = $this->build_ga4_body( $payload );
+                $mp_body['events'][0]['params']['debug_mode'] = 'true';
+                $url = add_query_arg( 'cid', $mp_body['client_id'], $url );
+                $resp = wp_remote_post( $url, [
+                    'timeout' => 15, 'headers' => ['Content-Type' => 'application/json'],
+                    'body' => wp_json_encode( $mp_body ),
+                ]);
+                if ( is_wp_error($resp) && ! $sent_any ) $error = $resp; else $sent_any = true;
+            }
+        }
+
+        if ( ( $destination === 'facebook' || $destination === 'both' ) && ! empty($opts['fb_enabled']) && ! empty($opts['fb_pixel_id']) && ! empty($opts['fb_access_token']) ) {
+            $event = $this->build_facebook_event( $payload );
+            $url = add_query_arg(
+                'access_token', $opts['fb_access_token'],
+                'https://graph.facebook.com/v19.0/' . rawurlencode($opts['fb_pixel_id']) . '/events'
+            );
             $resp = wp_remote_post( $url, [
                 'timeout' => 15, 'headers' => ['Content-Type' => 'application/json'],
-                'body' => wp_json_encode( $mp_body ),
+                'body' => wp_json_encode( ['data' => [$event], 'test_event_code' => 'TEST'] ),
             ]);
             if ( is_wp_error($resp) && ! $sent_any ) $error = $resp; else $sent_any = true;
         }

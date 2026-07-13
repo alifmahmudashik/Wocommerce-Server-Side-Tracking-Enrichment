@@ -7,7 +7,7 @@ final class WCMD_Utils {
     const INSTALL_TIME_KEY = 'wcmd_install_timestamp';
     const CAPABILITY       = 'manage_woocommerce';
 
-    const CURRENT_SCHEMA_VERSION = 4;
+    const CURRENT_SCHEMA_VERSION = 5;
 
     // Capture / tracking-confirmation meta (unchanged)
     const META_KEY         = '_marketing_data';
@@ -19,6 +19,7 @@ final class WCMD_Utils {
     // Per-destination "sent" meta (new)
     const META_DC_SENT     = '_wcmd_dataclient_sent_at';
     const META_GA4_SENT    = '_wcmd_ga4_sent_at';
+    const META_FB_SENT     = '_wcmd_facebook_sent_at';
 
     // Legacy meta, read-only fallback so upgraded sites don't resend
     const LEGACY_META_WH_SENT    = '_marketing_wh_sent_at';
@@ -58,9 +59,23 @@ final class WCMD_Utils {
             // both Real-Time and Recovery automatically use whatever is enabled.
             'dataclient_enabled'  => 0,
             'dataclient_endpoint' => '',
-            'ga4_enabled'         => 0,
-            'ga4_endpoint'        => '',
             'skip_if_tracked'     => 1,
+
+            // GA4 has two mutually-exclusive ways to send: through a
+            // self-hosted sGTM container, or directly to Google's real
+            // Measurement Protocol endpoint. 'ga4_enabled' is the single
+            // on/off switch either way; integration_mode picks which
+            // credentials/endpoint it actually uses.
+            'integration_mode' => 'sgtm', // 'sgtm' | 'direct'
+            'ga4_enabled'      => 0,
+            'ga4_endpoint'     => '',       // sGTM mode
+            'ga4_measurement_id' => '',     // Direct mode
+            'ga4_api_secret'     => '',     // Direct mode
+
+            // Facebook Conversions API — only available in Direct mode.
+            'fb_enabled'      => 0,
+            'fb_pixel_id'     => '',
+            'fb_access_token' => '',
 
             // Triggers — Real-Time and Recovery each watch their own status
             // list, independently. Real-Time fires immediately when an order
@@ -99,9 +114,19 @@ final class WCMD_Utils {
         // Destinations
         $out['dataclient_enabled']  = empty($input['dataclient_enabled']) ? 0 : 1;
         $out['dataclient_endpoint'] = isset($input['dataclient_endpoint']) ? esc_url_raw(trim($input['dataclient_endpoint'])) : '';
+        $out['skip_if_tracked']     = empty($input['skip_if_tracked']) ? 0 : 1;
+
+        $mode = isset($input['integration_mode']) ? $input['integration_mode'] : 'sgtm';
+        $out['integration_mode'] = in_array($mode, ['sgtm','direct'], true) ? $mode : 'sgtm';
+
         $out['ga4_enabled']         = empty($input['ga4_enabled']) ? 0 : 1;
         $out['ga4_endpoint']        = isset($input['ga4_endpoint']) ? esc_url_raw(trim($input['ga4_endpoint'])) : '';
-        $out['skip_if_tracked']     = empty($input['skip_if_tracked']) ? 0 : 1;
+        $out['ga4_measurement_id']  = isset($input['ga4_measurement_id']) ? sanitize_text_field(trim($input['ga4_measurement_id'])) : '';
+        $out['ga4_api_secret']      = isset($input['ga4_api_secret']) ? sanitize_text_field(trim($input['ga4_api_secret'])) : '';
+
+        $out['fb_enabled']      = empty($input['fb_enabled']) ? 0 : 1;
+        $out['fb_pixel_id']     = isset($input['fb_pixel_id']) ? sanitize_text_field(trim($input['fb_pixel_id'])) : '';
+        $out['fb_access_token'] = isset($input['fb_access_token']) ? sanitize_text_field(trim($input['fb_access_token'])) : '';
 
         // Triggers (independent status list per firing mechanism). An absent
         // checkbox group means the user unchecked every box — save that as a
@@ -144,6 +169,7 @@ final class WCMD_Utils {
         if ( $current < 2 ) self::migrate_v1_to_v2();
         if ( $current < 3 ) self::migrate_v2_to_v3();
         if ( $current < 4 ) self::migrate_v3_to_v4();
+        if ( $current < 5 ) self::migrate_v4_to_v5();
 
         update_option( self::SCHEMA_VER_KEY, self::CURRENT_SCHEMA_VERSION );
     }
@@ -218,6 +244,22 @@ final class WCMD_Utils {
         $shared = ! empty($old['trigger_statuses']) && is_array($old['trigger_statuses']) ? $old['trigger_statuses'] : ['processing'];
         $new['realtime_statuses'] = $shared;
         $new['recovery_statuses'] = $shared;
+
+        update_option( self::OPTION_KEY, $new );
+    }
+
+    /** Introduce Direct Integration mode (Facebook CAPI + direct GA4 Measurement Protocol) alongside the existing sGTM path. Every existing install keeps sending exactly as before, on 'sgtm' mode with its saved ga4_endpoint. */
+    private static function migrate_v4_to_v5() {
+        $old = get_option( self::OPTION_KEY, [] );
+        if ( empty($old) ) return;
+
+        $new = self::default_options();
+
+        foreach ( array_keys( $old ) as $k ) {
+            if ( array_key_exists( $k, $new ) ) $new[$k] = $old[$k];
+        }
+
+        $new['integration_mode'] = 'sgtm';
 
         update_option( self::OPTION_KEY, $new );
     }

@@ -67,6 +67,7 @@ final class WCMD_Recovery_Scheduler {
         $destinations = [];
         if ( ! empty($o['dataclient_enabled']) ) $destinations[] = 'dataclient';
         if ( ! empty($o['ga4_enabled']) )        $destinations[] = 'ga4';
+        if ( ! empty($o['fb_enabled']) )          $destinations[] = 'facebook';
 
         if ( empty($destinations) ) return 0;
         if ( ! $manual && empty($o['recovery_enabled']) ) return 0;

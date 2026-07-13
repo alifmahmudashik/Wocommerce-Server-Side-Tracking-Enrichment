@@ -53,7 +53,7 @@ final class WCMD_Realtime_Trigger {
         $opts = WCMD_Utils::get_options();
         if ( ! $force && empty($opts['realtime_enabled']) ) return [];
 
-        $result = WCMD_Dispatcher::instance()->dispatch( $order, ['dataclient', 'ga4'], $opts, $force );
+        $result = WCMD_Dispatcher::instance()->dispatch( $order, ['dataclient', 'ga4', 'facebook'], $opts, $force );
 
         if ( $force && ! in_array( true, $result, true ) ) {
             return new \WP_Error('no_send', 'Nothing was sent — enable at least one destination on the Destinations tab.');
