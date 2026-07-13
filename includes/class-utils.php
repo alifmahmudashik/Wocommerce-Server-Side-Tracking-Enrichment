@@ -103,21 +103,22 @@ final class WCMD_Utils {
         $out['ga4_endpoint']        = isset($input['ga4_endpoint']) ? esc_url_raw(trim($input['ga4_endpoint'])) : '';
         $out['skip_if_tracked']     = empty($input['skip_if_tracked']) ? 0 : 1;
 
-        // Triggers (independent status list per firing mechanism)
-        if ( isset($input['realtime_statuses']) && is_array($input['realtime_statuses']) ) {
-            $out['realtime_statuses'] = array_map('sanitize_key', $input['realtime_statuses']);
-        } else {
-            $out['realtime_statuses'] = ['processing'];
-        }
+        // Triggers (independent status list per firing mechanism). An absent
+        // checkbox group means the user unchecked every box — save that as a
+        // genuinely empty list rather than silently re-selecting "processing".
+        // Real-Time treats empty as "never fires" (it's inherently
+        // status-driven); Recovery treats empty as "any status counts" (see
+        // WCMD_Recovery_Scheduler).
+        $out['realtime_statuses'] = ( isset($input['realtime_statuses']) && is_array($input['realtime_statuses']) )
+            ? array_map('sanitize_key', $input['realtime_statuses'])
+            : [];
         $out['realtime_enabled'] = empty($input['realtime_enabled']) ? 0 : 1;
         $delay = isset($input['realtime_delay']) ? intval($input['realtime_delay']) : 5;
         $out['realtime_delay'] = max(0, min(60, $delay));
 
-        if ( isset($input['recovery_statuses']) && is_array($input['recovery_statuses']) ) {
-            $out['recovery_statuses'] = array_map('sanitize_key', $input['recovery_statuses']);
-        } else {
-            $out['recovery_statuses'] = ['processing'];
-        }
+        $out['recovery_statuses'] = ( isset($input['recovery_statuses']) && is_array($input['recovery_statuses']) )
+            ? array_map('sanitize_key', $input['recovery_statuses'])
+            : [];
         $out['recovery_enabled'] = empty($input['recovery_enabled']) ? 0 : 1;
         $valid = ['off','every_1_min','every_15_min','every_30_min','hourly','twicedaily','daily'];
         $req   = isset($input['recovery_schedule']) ? $input['recovery_schedule'] : 'off';

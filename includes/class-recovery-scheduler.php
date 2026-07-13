@@ -75,10 +75,10 @@ final class WCMD_Recovery_Scheduler {
         if ( $window_days < 1 ) $window_days = 1;
         $after_date = date( 'Y-m-d\TH:i:s', time() - ( $window_days * DAY_IN_SECONDS ) );
 
-        // Recovery only ever considers orders currently in one of its own
-        // statuses — independent from Real-Time's list, so each mechanism
-        // can watch a different point in the order lifecycle.
-        $allowed_statuses = $o['recovery_statuses'] ?? ['processing'];
+        // Recovery's status list is independent from Real-Time's, and
+        // optional: leave it empty to catch a missing purchase regardless of
+        // its current status; check specific boxes to only recover those.
+        $allowed_statuses = $o['recovery_statuses'] ?? [];
 
         $args = [
             'limit'        => 50,
@@ -107,8 +107,10 @@ final class WCMD_Recovery_Scheduler {
                 } );
                 if ( empty($needed) ) continue;
 
-                $clean_status = str_replace( 'wc-', '', $order->get_status() );
-                if ( ! in_array( $clean_status, $allowed_statuses, true ) ) continue;
+                if ( ! empty($allowed_statuses) ) {
+                    $clean_status = str_replace( 'wc-', '', $order->get_status() );
+                    if ( ! in_array( $clean_status, $allowed_statuses, true ) ) continue;
+                }
 
                 $result = $dispatcher->dispatch( $order, $needed, $o );
                 if ( ! empty($result) && in_array(true, $result, true) ) {

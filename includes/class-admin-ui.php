@@ -128,7 +128,7 @@ final class WCMD_Admin_UI {
                         <?php echo $untracked_count; ?> <span style="font-size:14px;color:#94a3b8">/ 7 recent</span>
                     </div>
                     <div class="wcmd-stat-desc">
-                        <?php echo $untracked_count > 0 ? "Recovery Sweep will pick these up" : 'All recent orders tracked'; ?>
+                        <?php echo $untracked_count > 0 ? "Recover Missing Purchases will pick these up" : 'All recent orders tracked'; ?>
                     </div>
                 </div>
 
@@ -176,11 +176,11 @@ final class WCMD_Admin_UI {
                 <div class="wcmd-section-title">Next Scheduled Run</div>
                 <div style="display:flex; gap:48px; margin-top:12px; flex-wrap:wrap;">
                     <div>
-                        <div class="wcmd-stat-label">⚡ Real-Time</div>
+                        <div class="wcmd-stat-label">⚡ Fire on Status Change</div>
                         <div style="font-size:16px; font-weight:600; color:#0f172a; margin-top:6px;"><?php echo esc_html($realtime_next_text); ?></div>
                     </div>
                     <div>
-                        <div class="wcmd-stat-label">🔄 Recovery Sweep</div>
+                        <div class="wcmd-stat-label">🔄 Recover Missing Purchases</div>
                         <div id="wcmd-recovery-next" data-next-ts="<?php echo esc_attr($recovery_next_ts); ?>" style="font-size:16px; font-weight:600; color:#0f172a; margin-top:6px;"><?php echo esc_html($recovery_next_text); ?></div>
                     </div>
                 </div>
@@ -215,7 +215,7 @@ final class WCMD_Admin_UI {
                         <input type="hidden" name="wcmd_do" value="run_recovery_now" />
                         <button type="submit" class="button wcmd-btn button-primary wcmd-btn-danger">Recover missed orders now</button>
                     </form>
-                    <p class="description">Runs Recovery Sweep immediately instead of waiting for its schedule (up to 50 orders per click).</p>
+                    <p class="description">Runs Recover Missing Purchases immediately instead of waiting for its schedule (up to 50 orders per click).</p>
                 </div>
             </div>
         </div>
@@ -240,7 +240,7 @@ final class WCMD_Admin_UI {
             }
             if ( ! $cron_ok ) {
                 $cron_msg = '<div style="background:#fee2e2; color:#b91c1c; padding:12px; border-radius:8px; margin-bottom:20px; border:1px solid #fecaca; font-size:13px;">
-                    <strong>Heads up:</strong> WordPress couldn\'t reach its own scheduler just now. If your site gets little traffic, "Check back and catch anything missed" may run late — ask your host to set up a real server cron for reliable timing.
+                    <strong>Heads up:</strong> WordPress couldn\'t reach its own scheduler just now. If your site gets little traffic, "Recover Missing Purchases" may run late — ask your host to set up a real server cron for reliable timing.
                 </div>';
             }
         }
@@ -316,7 +316,7 @@ final class WCMD_Admin_UI {
                         <!-- ============ TRIGGERS (combined Real-Time + Recovery) ============ -->
                         <div id="tab-triggers" class="wcmd-tab-content wcmd-card">
                             <h2 class="wcmd-section-title">Triggers</h2>
-                            <p class="wcmd-section-desc">This decides <em>when</em> purchase data goes out to the destinations you turned on. The two methods below work independently, each watching its own order status(es) — use just one, or both together. If an order was already sent by one, the other will skip it, so you'll never get double-counted.</p>
+                            <p class="wcmd-section-desc">This decides <em>when</em> purchase data goes out to the destinations you turned on. The two methods below work independently — use just one, or both together. If an order was already sent by one, the other will skip it, so you'll never get double-counted.</p>
 
                             <?php if ( empty($opts['dataclient_enabled']) && empty($opts['ga4_enabled']) ): ?>
                                 <div style="background:#fff7ed; color:#9a3412; padding:12px; border-radius:8px; margin-bottom:20px; border:1px solid #ffedd5; font-size:13px;">
@@ -330,7 +330,7 @@ final class WCMD_Admin_UI {
                             ?>
 
                             <div class="wcmd-input-group" style="border:1px solid #e2e8f0; padding:15px; border-radius:8px;">
-                                <label style="font-size:15px;"><input type="checkbox" name="<?php echo $opt_key; ?>[realtime_enabled]" value="1" <?php checked($opts['realtime_enabled'],1); ?> /> <strong>⚡ Send right away</strong></label>
+                                <label style="font-size:15px;"><input type="checkbox" name="<?php echo $opt_key; ?>[realtime_enabled]" value="1" <?php checked($opts['realtime_enabled'],1); ?> /> <strong>⚡ Fire on Status Change</strong></label>
                                 <p class="description" style="margin:6px 0 0;">The moment an order reaches one of the statuses below, send it — no waiting.</p>
 
                                 <div class="wcmd-input-group" style="margin-top:12px;">
@@ -350,16 +350,17 @@ final class WCMD_Admin_UI {
                             </div>
 
                             <div class="wcmd-input-group" style="border:1px solid #e2e8f0; padding:15px; border-radius:8px; margin-top:15px;">
-                                <label style="font-size:15px;"><input type="checkbox" name="<?php echo $opt_key; ?>[recovery_enabled]" value="1" <?php checked($opts['recovery_enabled'],1); ?> /> <strong>🔄 Check back and catch anything missed</strong></label>
-                                <p class="description" style="margin:6px 0 0;">Every so often, look back over recent orders for any still in one of the statuses below that never got sent — and send those now. Works completely on its own, whether or not "Send right away" is turned on.</p>
+                                <label style="font-size:15px;"><input type="checkbox" name="<?php echo $opt_key; ?>[recovery_enabled]" value="1" <?php checked($opts['recovery_enabled'],1); ?> /> <strong>🔄 Recover Missing Purchases</strong></label>
+                                <p class="description" style="margin:6px 0 0;">Every so often, look back over recent orders for any that never got sent, and send those now. Works completely on its own, whether or not "Fire on Status Change" is turned on.</p>
 
                                 <div class="wcmd-input-group" style="margin-top:12px;">
-                                    <label>Which status(es) to look for</label>
+                                    <label>Only recover these status(es) <span style="font-weight:normal; color:#64748b;">(optional)</span></label>
                                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; max-width:460px; background:#f8fafc; padding:10px; border:1px solid #e2e8f0; border-radius:6px;">
                                         <?php foreach($statuses as $slug => $label): $clean_slug = str_replace('wc-', '', $slug); ?>
                                             <label style="font-weight:normal; font-size:13px; margin:0;"><input type="checkbox" name="<?php echo $opt_key; ?>[recovery_statuses][]" value="<?php echo esc_attr($clean_slug); ?>" <?php checked(in_array($clean_slug, $recovery_saved)); ?> /> <?php echo esc_html($label); ?></label>
                                         <?php endforeach; ?>
                                     </div>
+                                    <span class="description">Leave everything unchecked to recover a missing purchase no matter what status it's currently in. Check specific boxes only if you want Recovery to ignore orders outside those statuses.</span>
                                 </div>
 
                                 <?php echo $cron_msg; ?>
